@@ -57,11 +57,12 @@ class BasicPIDController:
         """Send angle command to servo motor (clipped for safety)."""
         if self.servo:
             servo_angle = self.neutral_angle + angle
-            servo_angle = int(np.clip(servo_angle, 0, 30))
+            servo_angle = int(np.clip(servo_angle, 0, 50))  # Match Arduino MAX_ANGLE
             try:
                 self.servo.write(bytes([servo_angle]))
-            except Exception:
-                print("[SERVO] Send failed")
+                print(f"[SERVO] Sent angle: {servo_angle}° (control: {angle:.1f}°)")
+            except Exception as e:
+                print(f"[SERVO] Send failed: {e}")
 
     def update_pid(self, position, dt=0.033):
         """Perform PID calculation and return control output."""
@@ -78,8 +79,8 @@ class BasicPIDController:
         self.prev_error = error
         # PID output (limit to safe beam range)
         output = P + I + D
-        output = np.clip(output, -15, 15)
-        print(error)
+        output = np.clip(output, -30, 20)
+        print(f"[PID] Error: {error:.3f}, P: {P:.1f}, I: {I:.1f}, D: {D:.1f}, Output: {output:.1f}")
         return output
 
     def camera_thread(self):
