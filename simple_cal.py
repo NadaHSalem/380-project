@@ -19,7 +19,7 @@ class SimpleAutoCalibrator:
         self.BEAM_LENGTH_M = 0.2  # Known beam length in meters
         
         # Camera configuration
-        self.CAM_INDEX = 0  # Default camera index (try 1 for external webcam)
+        self.CAM_INDEX = 0  # Default camera index
         self.FRAME_W, self.FRAME_H = 640, 480  # Frame dimensions
         
         # Calibration state tracking
@@ -38,7 +38,7 @@ class SimpleAutoCalibrator:
         # Servo hardware configuration
         self.servo = None  # Serial connection to servo
         self.servo_port = "/dev/cu.usbmodem11201"  # Servo communication port
-        self.neutral_angle = 90  # Servo neutral position angle
+        self.neutral_angle = 30  # Servo neutral position angle
         
         # Position limit results
         self.position_min = None  # Minimum ball position in meters
@@ -67,7 +67,7 @@ class SimpleAutoCalibrator:
         """
         if self.servo:
             # Clip angle to safe range and send as byte
-            angle = int(np.clip(angle, 60, 120))
+            angle = int(np.clip(angle, 0, 50))
             self.servo.write(bytes([angle]))
 
     def mouse_callback(self, event, x, y, flags, param):
@@ -204,9 +204,11 @@ class SimpleAutoCalibrator:
         positions = []
         
         # Test servo at different angles to find position range
-        test_angles = [self.neutral_angle - 15, self.neutral_angle, self.neutral_angle + 15]
+        test_angles = [self.neutral_angle - 30, self.neutral_angle, self.neutral_angle + 20]
+        print(f"[DEBUG] Test angles: {test_angles}")
         
-        for angle in test_angles:
+        for i, angle in enumerate(test_angles):
+            print(f"[DEBUG] Starting test {i+1}/3: angle {angle} degrees")
             # Move servo to test angle
             self.send_servo_angle(angle)
             time.sleep(2)  # Wait for ball to settle
@@ -226,8 +228,12 @@ class SimpleAutoCalibrator:
             if angle_positions:
                 avg_pos = np.mean(angle_positions)
                 positions.append(avg_pos)
-                print(f"[LIMITS] Angle {angle}: {avg_pos:.4f}m")
+                print(f"[LIMITS] Angle {angle}: {avg_pos:.4f}m ({len(angle_positions)} measurements)")
+            else:
+                print(f"[LIMITS] Angle {angle}: No ball detected!")
+            print(f"[DEBUG] Completed test {i+1}/3 for angle {angle}")
         
+        print(f"[DEBUG] All tests completed. Collected {len(positions)} position measurements")
         # Return servo to neutral position
         self.send_servo_angle(self.neutral_angle)
         

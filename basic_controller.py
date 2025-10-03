@@ -38,6 +38,8 @@ class BasicPIDController:
         self.start_time = None
         # Thread-safe queue for most recent ball position measurement
         self.position_queue = queue.Queue(maxsize=1)
+        # Queue for camera frames to display on main thread
+        self.frame_queue = queue.Queue(maxsize=1)
         self.running = False    # Main run flag for clean shutdown
 
     def connect_servo(self):
@@ -82,8 +84,16 @@ class BasicPIDController:
 
     def camera_thread(self):
         """Dedicated thread for video capture and ball detection."""
-        cap = cv2.VideoCapture(self.config['camera']['index'], cv2.CAP_DSHOW)
+        print(f"[CAMERA] Initializing camera index {self.config['camera']['index']}")
+        cap = cv2.VideoCapture(self.config['camera']['index'])
+        
+        if not cap.isOpened():
+            print("[ERROR] Failed to open camera!")
+            return
+        
+        print("[CAMERA] Camera opened successfully")
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        
         while self.running:
             ret, frame = cap.read()
             if not ret:
@@ -101,13 +111,14 @@ class BasicPIDController:
                     self.position_queue.put_nowait(position_m)
                 except Exception:
                     pass
-            # Show processed video with overlays
-            cv2.imshow("Ball Tracking", vis_frame)
-            if cv2.waitKey(1) & 0xFF == 27:  # ESC exits
-                self.running = False
-                break
+            # Put frame in queue for main thread to display
+            try:
+                if self.frame_queue.full():
+                    self.frame_queue.get_nowait()
+                self.frame_queue.put_nowait(vis_frame)
+            except Exception:
+                pass
         cap.release()
-        cv2.destroyAllWindows()
 
     def control_thread(self):
         """Runs PID control loop in parallel with GUI and camera."""
@@ -144,6 +155,9 @@ class BasicPIDController:
         self.root = tk.Tk()
         self.root.title("Basic PID Controller")
         self.root.geometry("520x400")
+        
+        # Create OpenCV window on main thread
+        cv2.namedWindow("Ball Tracking")
 
         # Title label
         ttk.Label(self.root, text="PID Gains", font=("Arial", 18, "bold")).pack(pady=10)
@@ -213,6 +227,16 @@ class BasicPIDController:
             self.ki_label.config(text=f"Ki: {self.Ki:.1f}")
             self.kd_label.config(text=f"Kd: {self.Kd:.1f}")
             self.setpoint_label.config(text=f"Setpoint: {self.setpoint:.3f}m")
+            
+            # Display camera frames on main thread
+            try:
+                frame = self.frame_queue.get_nowait()
+                cv2.imshow("Ball Tracking", frame)
+                if cv2.waitKey(1) & 0xFF == 27:  # ESC exits
+                    self.running = False
+            except queue.Empty:
+                pass
+            
             # Call again after 50 ms (if not stopped)
             self.root.after(50, self.update_gui)
 
@@ -250,6 +274,7 @@ class BasicPIDController:
         self.running = False
         # Try to safely close all windows/resources
         try:
+            cv2.destroyAllWindows()
             self.root.quit()
             self.root.destroy()
         except Exception:

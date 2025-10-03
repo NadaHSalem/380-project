@@ -3,9 +3,9 @@
 // Servo configuration
 Servo beamServo;
 const int servoPin = 9;
-const int MIN_ANGLE = 60;
-const int MAX_ANGLE = 120;
-const int NEUTRAL_ANGLE = 90;
+const int MIN_ANGLE = 0;
+const int MAX_ANGLE = 50;
+const int NEUTRAL_ANGLE = 30;
 
 // Communication variables
 int targetAngle = NEUTRAL_ANGLE;
@@ -47,10 +47,10 @@ void loop() {
     newCommand = false;
     
     // Optional: Echo back the angle for debugging
-    // Serial.print("Angle set to: ");
-    // Serial.println(targetAngle);
+    Serial.print("Angle set to: ");
+    Serial.println(targetAngle);
   }
   
   // Small delay for stability
-  delay(10);
+  delay(20);
 }
