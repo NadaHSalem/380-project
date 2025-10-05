@@ -38,8 +38,8 @@ class BasicPIDController:
         self.start_time = None
         # Thread-safe queue for most recent ball position measurement
         self.position_queue = queue.Queue(maxsize=1)
-        # Queue for camera frames to display on main thread
-        self.frame_queue = queue.Queue(maxsize=1)
+        # Thread-safe queue for display frames (macOS compatibility)
+        self.display_queue = queue.Queue(maxsize=1)
         self.running = False    # Main run flag for clean shutdown
 
     def connect_servo(self):
@@ -57,12 +57,11 @@ class BasicPIDController:
         """Send angle command to servo motor (clipped for safety)."""
         if self.servo:
             servo_angle = self.neutral_angle + angle
-            servo_angle = int(np.clip(servo_angle, 0, 50))  # Match Arduino MAX_ANGLE
+            servo_angle = int(np.clip(servo_angle, 0, 50))
             try:
                 self.servo.write(bytes([servo_angle]))
-                print(f"[SERVO] Sent angle: {servo_angle}° (control: {angle:.1f}°)")
-            except Exception as e:
-                print(f"[SERVO] Send failed: {e}")
+            except Exception:
+                print("[SERVO] Send failed")
 
     def update_pid(self, position, dt=0.033):
         """Perform PID calculation and return control output."""
@@ -85,16 +84,8 @@ class BasicPIDController:
 
     def camera_thread(self):
         """Dedicated thread for video capture and ball detection."""
-        print(f"[CAMERA] Initializing camera index {self.config['camera']['index']}")
         cap = cv2.VideoCapture(self.config['camera']['index'])
-        
-        if not cap.isOpened():
-            print("[ERROR] Failed to open camera!")
-            return
-        
-        print("[CAMERA] Camera opened successfully")
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        
         while self.running:
             ret, frame = cap.read()
             if not ret:
@@ -112,11 +103,11 @@ class BasicPIDController:
                     self.position_queue.put_nowait(position_m)
                 except Exception:
                     pass
-            # Put frame in queue for main thread to display
+            # Send frame to main thread for display (macOS compatibility)
             try:
-                if self.frame_queue.full():
-                    self.frame_queue.get_nowait()
-                self.frame_queue.put_nowait(vis_frame)
+                if self.display_queue.full():
+                    self.display_queue.get_nowait()
+                self.display_queue.put_nowait(vis_frame)
             except Exception:
                 pass
         cap.release()
@@ -156,9 +147,6 @@ class BasicPIDController:
         self.root = tk.Tk()
         self.root.title("Basic PID Controller")
         self.root.geometry("520x400")
-        
-        # Create OpenCV window on main thread
-        cv2.namedWindow("Ball Tracking")
 
         # Title label
         ttk.Label(self.root, text="PID Gains", font=("Arial", 18, "bold")).pack(pady=10)
@@ -229,17 +217,26 @@ class BasicPIDController:
             self.kd_label.config(text=f"Kd: {self.Kd:.1f}")
             self.setpoint_label.config(text=f"Setpoint: {self.setpoint:.3f}m")
             
-            # Display camera frames on main thread
-            try:
-                frame = self.frame_queue.get_nowait()
-                cv2.imshow("Ball Tracking", frame)
-                if cv2.waitKey(1) & 0xFF == 27:  # ESC exits
-                    self.running = False
-            except queue.Empty:
-                pass
+            # Handle OpenCV display in main thread (macOS compatibility)
+            self.update_display()
             
             # Call again after 50 ms (if not stopped)
             self.root.after(50, self.update_gui)
+
+    def update_display(self):
+        """Handle OpenCV display in main thread (macOS compatibility)."""
+        try:
+            # Get latest frame from camera thread
+            vis_frame = self.display_queue.get_nowait()
+            cv2.imshow("Ball Tracking", vis_frame)
+            # Check for ESC key
+            if cv2.waitKey(1) & 0xFF == 27:  # ESC exits
+                self.running = False
+                self.stop()
+        except queue.Empty:
+            pass  # No new frame available
+        except Exception as e:
+            print(f"[DISPLAY] Error: {e}")
 
     def reset_integral(self):
         """Clear integral error in PID (button handler)."""
