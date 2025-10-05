@@ -6,7 +6,7 @@ import time
 import tkinter as tk
 from tkinter import ttk
 import matplotlib.pyplot as plt
-from threading import Thread
+from threading import Thread, Lock
 import queue
 from ball_detection import detect_ball_x
 
@@ -41,6 +41,8 @@ class BasicPIDController:
         # Thread-safe queue for display frames (macOS compatibility)
         self.display_queue = queue.Queue(maxsize=1)
         self.running = False    # Main run flag for clean shutdown
+        self.camera_ready = False  # Flag to ensure camera is ready before control starts
+        self.pid_lock = Lock()  # Thread lock for PID parameters
 
     def connect_servo(self):
         """Try to open serial connection to servo, return True if success."""
@@ -48,6 +50,18 @@ class BasicPIDController:
             self.servo = serial.Serial(self.servo_port, 9600)
             time.sleep(2)
             print("[SERVO] Connected")
+            
+            # Check if Arduino is responding
+            self.servo.flushInput()  # Clear any existing data
+            self.servo.write(b'?')  # Send a test command
+            time.sleep(0.1)
+            
+            if self.servo.in_waiting > 0:
+                response = self.servo.readline().decode().strip()
+                print(f"[SERVO] Arduino response: {response}")
+            else:
+                print("[SERVO] No response from Arduino - check if code is uploaded")
+                
             return True
         except Exception as e:
             print(f"[SERVO] Failed: {e}")
@@ -60,25 +74,35 @@ class BasicPIDController:
             servo_angle = int(np.clip(servo_angle, 0, 50))
             try:
                 self.servo.write(bytes([servo_angle]))
-            except Exception:
-                print("[SERVO] Send failed")
+                print(f"[SERVO] Sent angle: {servo_angle}° (control: {angle:.1f}°)")
+            except Exception as e:
+                print(f"[SERVO] Send failed: {e}")
+        else:
+            print(f"[SERVO] No connection - would send angle: {angle:.1f}°")
 
     def update_pid(self, position, dt=0.033):
         """Perform PID calculation and return control output."""
-        error = self.setpoint - position  # Compute error
+        # Thread-safe access to PID parameters
+        with self.pid_lock:
+            kp = self.Kp
+            ki = self.Ki
+            kd = self.Kd
+            setpoint = self.setpoint
+        
+        error = setpoint - position  # Compute error
         error = error * 100  # Scale error for easier tuning (if needed)
         # Proportional term
-        P = self.Kp * error
+        P = kp * error
         # Integral term accumulation
         self.integral += error * dt
-        I = self.Ki * self.integral
+        I = ki * self.integral
         # Derivative term calculation
         derivative = (error - self.prev_error) / dt
-        D = self.Kd * derivative
+        D = kd * derivative
         self.prev_error = error
         # PID output (limit to safe beam range)
         output = P + I + D
-        output = np.clip(output, -30, 20)
+        output = np.clip(output, -360, 360)
         print(f"[PID] Error: {error:.3f}, P: {P:.1f}, I: {I:.1f}, D: {D:.1f}, Output: {output:.1f}")
         return output
 
@@ -86,6 +110,18 @@ class BasicPIDController:
         """Dedicated thread for video capture and ball detection."""
         cap = cv2.VideoCapture(self.config['camera']['index'])
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        
+        # Wait for camera to initialize and first frame
+        frame_count = 0
+        while self.running and frame_count < 5:  # Wait for a few frames to ensure camera is stable
+            ret, frame = cap.read()
+            if ret:
+                frame_count += 1
+            time.sleep(0.1)
+        
+        self.camera_ready = True  # Signal that camera is ready
+        print("[CAMERA] Camera thread ready, starting main loop")
+        
         while self.running:
             ret, frame = cap.read()
             if not ret:
@@ -111,12 +147,24 @@ class BasicPIDController:
             except Exception:
                 pass
         cap.release()
+        cv2.destroyAllWindows()
 
     def control_thread(self):
         """Runs PID control loop in parallel with GUI and camera."""
         if not self.connect_servo():
             print("[ERROR] No servo - running in simulation mode")
+        
+        # Wait for camera to be ready before starting control
+        print("[CONTROL] Waiting for camera to be ready...")
+        while self.running and not self.camera_ready:
+            time.sleep(0.1)
+        
+        if not self.running:
+            return
+            
+        print("[CONTROL] Camera ready, starting control loop")
         self.start_time = time.time()
+        
         while self.running:
             try:
                 # Wait for latest ball position from camera
@@ -206,11 +254,13 @@ class BasicPIDController:
     def update_gui(self):
         """Reflect latest values from sliders into program and update display."""
         if self.running:
-            # PID parameters
-            self.Kp = self.kp_var.get()
-            self.Ki = self.ki_var.get()
-            self.Kd = self.kd_var.get()
-            self.setpoint = self.setpoint_var.get()
+            # Thread-safe update of PID parameters
+            with self.pid_lock:
+                self.Kp = self.kp_var.get()
+                self.Ki = self.ki_var.get()
+                self.Kd = self.kd_var.get()
+                self.setpoint = self.setpoint_var.get()
+            
             # Update displayed values
             self.kp_label.config(text=f"Kp: {self.Kp:.1f}")
             self.ki_label.config(text=f"Ki: {self.Ki:.1f}")
@@ -285,13 +335,24 @@ class BasicPIDController:
         print("Close camera window or click Stop to exit")
         self.running = True
 
-        # Start camera and control threads, mark as daemon for exit
+        # Start camera thread first
+        print("[INFO] Starting camera thread...")
         cam_thread = Thread(target=self.camera_thread, daemon=True)
-        ctrl_thread = Thread(target=self.control_thread, daemon=True)
         cam_thread.start()
+        
+        # Wait a moment for camera to initialize
+        time.sleep(1)
+        
+        # Start control thread (it will wait for camera to be ready)
+        print("[INFO] Starting control thread...")
+        ctrl_thread = Thread(target=self.control_thread, daemon=True)
         ctrl_thread.start()
+        
+        # Wait a moment for control thread to connect to servo
+        time.sleep(1)
 
         # Build and run GUI in main thread
+        print("[INFO] Starting GUI...")
         self.create_gui()
         self.root.mainloop()
 
