@@ -1,30 +1,30 @@
 {
-    "timestamp": "2025-10-03T12:53:09.778607",
-    "beam_length_m": 0.2,
-    "camera": {
-      "index": 0,
-      "frame_width": 640,
-      "frame_height": 480
-    },
-    "ball_detection": {
-      "lower_hsv": [
-        10.0,
-        80.95,
-        245.0
-      ],
-      "upper_hsv": [
-        31.0,
-        168.05,
-        255.0
-      ]
-    },
-    "calibration": {
-      "pixel_to_meter_ratio": 0.0005433498852303893,
-      "position_min_m": -0.10641721764001741,
-      "position_max_m": 0.05449448811245638
-    },
-    "servo": {
-      "port": "/dev/cu.usbmodem11201",
-      "neutral_angle": 30
-    }
+  "timestamp": "2025-10-08T09:22:29.932205",
+  "beam_length_m": 0.2,
+  "camera": {
+    "index": 0,
+    "frame_width": 640,
+    "frame_height": 480
+  },
+  "ball_detection": {
+    "lower_hsv": [
+      19.0,
+      89.0,
+      245.0
+    ],
+    "upper_hsv": [
+      35.0,
+      149.0,
+      255.0
+    ]
+  },
+  "calibration": {
+    "pixel_to_meter_ratio": 0.0005811498499499612,
+    "position_min_m": -0.09069569845781582,
+    "position_max_m": 0.08262195339008868
+  },
+  "servo": {
+    "port": "/dev/cu.usbmodem211101",
+    "neutral_angle": 30
   }
+}

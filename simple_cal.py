@@ -37,7 +37,7 @@ class SimpleAutoCalibrator:
         
         # Servo hardware configuration
         self.servo = None  # Serial connection to servo
-        self.servo_port = "/dev/cu.usbmodem11201"  # Servo communication port
+        self.servo_port = "/dev/cu.usbmodem211101"  # Servo communication port
         self.neutral_angle = 30  # Servo neutral position angle
         
         # Position limit results
